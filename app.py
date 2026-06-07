@@ -95,8 +95,13 @@ class RTSPYoloApp(ctk.CTk):
         self.current_fps = 0.0
         self.window_hidden = False
         
-        # Threads & Queues
-        self.frame_queue = queue.Queue(maxsize=2)
+        # Thread safety & state sharing
+        self.frame_lock = threading.Lock()
+        self.detections_lock = threading.Lock()
+        self.latest_frame = None
+        self.latest_detections = []
+        self.capture_fps = 0.0
+        self.detection_fps = 0.0
         
         # Initialize Managers
         self.webhook_manager = WebhookManager(
@@ -131,6 +136,10 @@ class RTSPYoloApp(ctk.CTk):
         # Start capture thread
         self.capture_thread = threading.Thread(target=self.capture_loop, name="CaptureThread", daemon=True)
         self.capture_thread.start()
+        
+        # Start detection thread
+        self.detection_thread = threading.Thread(target=self.detection_loop, name="DetectionThread", daemon=True)
+        self.detection_thread.start()
         
         # Start UI Frame Update loop
         self.update_frame_loop()
@@ -374,47 +383,65 @@ class RTSPYoloApp(ctk.CTk):
         logger.info("Shutdown completed.")
         sys.exit(0)
 
-    # UI updates from frame queue
+    # UI updates from frame and detection threads
     def update_frame_loop(self):
         if not self.running:
             return
             
-        try:
-            # Poll queue for new processed frame data
-            # Using get_nowait to keep UI responsive
-            while True:
-                data = self.frame_queue.get_nowait()
-                
-                # Update status indicators
-                status = data.get("status", "Disconnected")
-                fps = data.get("fps", 0.0)
-                
-                self.status_text.configure(text=status)
-                if status == "Online":
-                    self.status_dot.configure(text_color="#10b981")
-                elif status == "Connecting...":
-                    self.status_dot.configure(text_color="#f59e0b")
-                else:
-                    self.status_dot.configure(text_color="#ef4444")
-                    
-                if self.show_fps_label:
-                    self.fps_text.configure(text=f"FPS: {fps:.1f}")
-                
-                # Update frame image
-                pil_img = data.get("image")
-                if pil_img and not self.window_hidden:
-                    # Hide placeholder label
-                    self.placeholder_label.grid_remove()
-                    
-                    # Convert to PhotoImage (must be on main thread)
-                    photo = ImageTk.PhotoImage(image=pil_img)
-                    
-                    # Prevent garbage collection of image
-                    self.video_label.photo = photo
-                    self.video_label.configure(image=photo)
-        except queue.Empty:
-            pass
+        # Get latest frame and FPS info under lock
+        frame = None
+        cap_fps = 0.0
+        with self.frame_lock:
+            if self.latest_frame is not None:
+                frame = self.latest_frame.copy()
+            cap_fps = self.capture_fps
             
+        detections = []
+        det_fps = 0.0
+        if self.detection_enabled:
+            with self.detections_lock:
+                detections = list(self.latest_detections)
+                det_fps = self.detection_fps
+                
+        # Update FPS label text
+        if self.show_fps_label:
+            if self.detection_enabled:
+                self.fps_text.configure(text=f"Cap FPS: {cap_fps:.1f} | Det FPS: {det_fps:.1f}")
+            else:
+                self.fps_text.configure(text=f"Cap FPS: {cap_fps:.1f} | Det: Off")
+                
+        if frame is not None:
+            # Draw detections for visual feedback if enabled
+            if self.detection_enabled and len(detections) > 0:
+                display_frame = self.detector.draw_detections(frame, detections)
+            else:
+                display_frame = frame
+                
+            if not self.window_hidden:
+                # Hide placeholder label
+                self.placeholder_label.grid_remove()
+                
+                # Convert BGR to RGB
+                rgb_frame = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
+                
+                # Resize keeping aspect ratio to fit the UI canvas elegantly
+                h, w = rgb_frame.shape[:2]
+                target_w = 780
+                target_h = int((h / w) * target_w)
+                if target_h > 450:
+                    target_h = 450
+                    target_w = int((w / h) * target_h)
+                
+                resized = cv2.resize(rgb_frame, (target_w, target_h), interpolation=cv2.INTER_AREA)
+                pil_img = Image.fromarray(resized)
+                
+                # Convert to PhotoImage (must be on main thread)
+                photo = ImageTk.PhotoImage(image=pil_img)
+                
+                # Prevent garbage collection of image
+                self.video_label.photo = photo
+                self.video_label.configure(image=photo)
+                
         # Schedule next update in ~16ms (approx 60 fps matching)
         self.after(16, self.update_frame_loop)
 
@@ -446,10 +473,6 @@ class RTSPYoloApp(ctk.CTk):
             
             cap = cv2.VideoCapture(self.rtsp_url)
             cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
-
-            
-            # Use OpenCV grab / retrieve to prevent frame lag build up on high latency RTSP
-            # We also set buffer size if supported by OpenCV backends
             cap.set(cv2.CAP_PROP_BUFFERSIZE, 2)
             
             if not cap.isOpened():
@@ -469,74 +492,79 @@ class RTSPYoloApp(ctk.CTk):
             prev_time = time.time()
             fps_count = 0
             fps_accum = 0.0
-            fps = 0.0
             
             while self.running:
-                # Capture frame
                 ret, frame = cap.read()
                 if not ret:
                     logger.warning("Failed to grab frame. Stream disconnected.")
                     self.update_status("Reconnecting...")
                     break
                     
-                # Calculate FPS
                 now = time.time()
                 dt = now - prev_time
                 prev_time = now
                 fps_count += 1
                 fps_accum += dt
                 if fps_accum >= 1.0:
-                    fps = fps_count / fps_accum
+                    with self.frame_lock:
+                        self.capture_fps = fps_count / fps_accum
                     fps_count = 0
                     fps_accum = 0.0
                 
-                detections = []
-                display_frame = frame
+                with self.frame_lock:
+                    self.latest_frame = frame
                 
-                # Check for detection state
-                if self.detection_enabled:
-                    detections = self.detector.detect(frame)
-                    if len(detections) > 0:
-                        self.process_detections(frame, detections)
-                    
-                    # Draw annotations
-                    display_frame = self.detector.draw_detections(frame, detections)
-                
-                # Render to PIL Image
-                rgb_frame = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
-                
-                # Resize keeping aspect ratio to fit the UI canvas elegantly
-                h, w = rgb_frame.shape[:2]
-                target_w = 780
-                target_h = int((h / w) * target_w)
-                # Keep height within bound limit
-                if target_h > 450:
-                    target_h = 450
-                    target_w = int((w / h) * target_h)
-                
-                resized = cv2.resize(rgb_frame, (target_w, target_h), interpolation=cv2.INTER_AREA)
-                pil_img = Image.fromarray(resized)
-                
-                # Push into queue
-                if self.running:
-                    # Clear queue to only hold newest frames
-                    while not self.frame_queue.empty():
-                        try:
-                            self.frame_queue.get_nowait()
-                        except queue.Empty:
-                            break
-                    self.frame_queue.put({
-                        "image": pil_img,
-                        "fps": fps,
-                        "status": "Online",
-                        "detections": detections
-                    })
-                
-                # Control loop rate slightly (prevents high CPU burn on fast loops)
-                time.sleep(0.01)
+                time.sleep(0.001)
                 
             cap.release()
+            with self.frame_lock:
+                self.latest_frame = None
+                self.capture_fps = 0.0
             logger.info("RTSP connection released.")
+
+    # Background detection loop
+    def detection_loop(self):
+        prev_time = time.time()
+        fps_count = 0
+        fps_accum = 0.0
+        
+        while self.running:
+            if not self.detection_enabled:
+                with self.detections_lock:
+                    self.latest_detections = []
+                    self.detection_fps = 0.0
+                time.sleep(0.1)
+                continue
+                
+            frame_to_process = None
+            with self.frame_lock:
+                if self.latest_frame is not None:
+                    frame_to_process = self.latest_frame.copy()
+            
+            if frame_to_process is None:
+                time.sleep(0.01)
+                continue
+                
+            # Run detection on copy of the latest frame
+            detections = self.detector.detect(frame_to_process)
+            
+            now = time.time()
+            dt = now - prev_time
+            prev_time = now
+            fps_count += 1
+            fps_accum += dt
+            if fps_accum >= 1.0:
+                self.detection_fps = fps_count / fps_accum
+                fps_count = 0
+                fps_accum = 0.0
+                
+            with self.detections_lock:
+                self.latest_detections = detections
+                
+            if len(detections) > 0:
+                self.process_detections(frame_to_process, detections)
+                
+            time.sleep(0.01)
 
     def process_detections(self, frame, detections):
         # Figure out who is eligible for notification
@@ -555,27 +583,18 @@ class RTSPYoloApp(ctk.CTk):
         if not eligible_classes:
             return
             
-        # We have at least one valid notification to send!
-        # Save screenshot
-        timestamp = time.strftime("%Y%m%d_%H%M%S")
-        class_str = "_".join(eligible_classes)
-        screenshot_filename = f"det_{class_str}_{timestamp}.jpg"
-        screenshot_path = os.path.join(self.save_directory, screenshot_filename)
-        
-        try:
-            # Save annotated version
-            annotated_frame = self.detector.draw_detections(frame, detections)
-            cv2.imwrite(screenshot_path, annotated_frame)
-            logger.info(f"Screenshot saved to {screenshot_path}")
-            self.prune_save_directory()
-        except Exception as e:
-            logger.error(f"Failed to save screenshot: {e}")
-            screenshot_path = None
-            
-        # Dispatch notification webhooks (asynchronously handled in webhook_manager)
+        # Dispatch notification webhooks (handled asynchronously in WebhookManager)
         for cname in eligible_classes:
             conf = highest_conf[cname]
-            self.webhook_manager.send_notification(cname, conf, screenshot_path)
+            self.webhook_manager.send_notification(
+                class_name=cname,
+                confidence=conf,
+                frame=frame,
+                detector=self.detector,
+                detections=detections,
+                save_directory=self.save_directory,
+                max_usage_bytes=self.max_usage_bytes
+            )
 
     # System Tray Integration
     def setup_tray_icon(self):
