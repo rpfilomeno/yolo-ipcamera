@@ -445,6 +445,8 @@ class RTSPYoloApp(ctk.CTk):
             self.update_status("Connecting...")
             
             cap = cv2.VideoCapture(self.rtsp_url)
+            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+
             
             # Use OpenCV grab / retrieve to prevent frame lag build up on high latency RTSP
             # We also set buffer size if supported by OpenCV backends
