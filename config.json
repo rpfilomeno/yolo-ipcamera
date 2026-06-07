@@ -18,7 +18,8 @@
     "enable_discord": true
   },
   "storage": {
-    "save_directory": "./save"
+    "save_directory": "./save",
+    "max_usage_mb": 100
   },
   "ui": {
     "window_title": "RTSP YOLO Object Detector & Monitor",

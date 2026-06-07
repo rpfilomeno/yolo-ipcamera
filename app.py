@@ -81,9 +81,12 @@ class RTSPYoloApp(ctk.CTk):
         
         storage_cfg = config.get("storage", {})
         self.save_directory = storage_cfg.get("save_directory", "./save")
+        self.max_usage_mb = storage_cfg.get("max_usage_mb", 100)
+        self.max_usage_bytes = self.max_usage_mb * 1024 * 1024
         
         # Ensure directories exist
         os.makedirs(self.save_directory, exist_ok=True)
+        self.prune_save_directory()
         
         # App state variables
         self.running = True
@@ -288,6 +291,50 @@ class RTSPYoloApp(ctk.CTk):
             logger.info(f"Opened folder: {abs_path}")
         except Exception as e:
             logger.error(f"Failed to open save directory: {e}")
+
+    def prune_save_directory(self):
+        if not hasattr(self, "max_usage_bytes") or self.max_usage_bytes <= 0:
+            return
+        
+        try:
+            if not os.path.exists(self.save_directory):
+                return
+                
+            files = []
+            for entry in os.scandir(self.save_directory):
+                if entry.is_file():
+                    try:
+                        stat = entry.stat()
+                        files.append({
+                            "path": entry.path,
+                            "size": stat.st_size,
+                            "mtime": stat.st_mtime
+                        })
+                    except OSError:
+                        pass
+            
+            total_size = sum(f["size"] for f in files)
+            if total_size <= self.max_usage_bytes:
+                return
+                
+            logger.info(f"Storage usage ({total_size / (1024 * 1024):.2f} MB) exceeds limit ({self.max_usage_bytes / (1024 * 1024):.2f} MB). Pruning oldest files...")
+            
+            # Sort by mtime (oldest first)
+            files.sort(key=lambda x: x["mtime"])
+            
+            for f in files:
+                if total_size <= self.max_usage_bytes:
+                    break
+                try:
+                    os.remove(f["path"])
+                    total_size -= f["size"]
+                    logger.info(f"Pruned file: {f['path']} ({f['size'] / 1024:.1f} KB)")
+                except Exception as e:
+                    logger.error(f"Failed to delete {f['path']}: {e}")
+                    
+            logger.info(f"Storage pruning complete. Current usage: {total_size / (1024 * 1024):.2f} MB")
+        except Exception as e:
+            logger.error(f"Error during save directory pruning: {e}")
 
     def hide_window(self):
         self.withdraw()
@@ -518,6 +565,7 @@ class RTSPYoloApp(ctk.CTk):
             annotated_frame = self.detector.draw_detections(frame, detections)
             cv2.imwrite(screenshot_path, annotated_frame)
             logger.info(f"Screenshot saved to {screenshot_path}")
+            self.prune_save_directory()
         except Exception as e:
             logger.error(f"Failed to save screenshot: {e}")
             screenshot_path = None
@@ -588,7 +636,8 @@ if __name__ == "__main__":
                 "enable_discord": True
             },
             "storage": {
-                "save_directory": "./save"
+                "save_directory": "./save",
+                "max_usage_mb": 100
             },
             "ui": {
                 "window_title": "RTSP YOLO Object Detector & Monitor",
