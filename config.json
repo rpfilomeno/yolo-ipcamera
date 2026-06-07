@@ -1,0 +1,30 @@
+{
+  "rtsp": {
+    "url": "rtsp://192.168.1.200:554/live/ch00_1",
+    "reconnect_delay_seconds": 5
+  },
+  "yolo": {
+    "model_name": "yolov8n.pt",
+    "confidence_threshold": 0.5,
+    "target_classes": [
+      "person",
+      "cat",
+      "dog"
+    ]
+  },
+  "notifications": {
+    "discord_webhook_url": "https://discord.com/api/webhooks/1513065582822686832/LLwOPOv_P50-w-oJtzdIFqiYQU3yWIWSFb9L9-TeCSP7kXoY-N6pgmLIPu-_I-djmLj5",
+    "cooldown_seconds": 60,
+    "enable_discord": true
+  },
+  "storage": {
+    "save_directory": "./save"
+  },
+  "ui": {
+    "window_title": "RTSP YOLO Object Detector & Monitor",
+    "width": 800,
+    "height": 600,
+    "start_minimized": false,
+    "show_fps": true
+  }
+}

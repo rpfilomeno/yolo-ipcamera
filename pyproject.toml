@@ -1,0 +1,14 @@
+[project]
+name = "yolo-ipcamera"
+version = "0.1.0"
+description = "Windows RTSP YOLO Object Monitor"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "ultralytics",
+    "opencv-python",
+    "customtkinter",
+    "pystray",
+    "Pillow",
+    "requests"
+]
