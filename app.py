@@ -77,7 +77,11 @@ class RTSPYoloApp(ctk.CTk):
         notify_cfg = config.get("notifications", {})
         self.discord_url = notify_cfg.get("discord_webhook_url", "")
         self.cooldown_seconds = notify_cfg.get("cooldown_seconds", 60)
+        self.min_detection_duration_ms = notify_cfg.get("min_detection_duration_ms", 0)
         self.notifications_enabled = notify_cfg.get("enable_discord", True)
+        
+        # Track continuous detection start times for notification delays
+        self.detection_start_times = {}
         
         storage_cfg = config.get("storage", {})
         self.save_directory = storage_cfg.get("save_directory", "./save")
@@ -533,6 +537,7 @@ class RTSPYoloApp(ctk.CTk):
                 with self.detections_lock:
                     self.latest_detections = []
                     self.detection_fps = 0.0
+                self.detection_start_times.clear()
                 time.sleep(0.1)
                 continue
                 
@@ -561,6 +566,15 @@ class RTSPYoloApp(ctk.CTk):
             with self.detections_lock:
                 self.latest_detections = detections
                 
+            # Update continuous detection duration tracking
+            current_classes = {det["class_name"].lower() for det in detections}
+            for cname in current_classes:
+                if cname not in self.detection_start_times:
+                    self.detection_start_times[cname] = now
+            for cname in list(self.detection_start_times.keys()):
+                if cname not in current_classes:
+                    del self.detection_start_times[cname]
+                
             if len(detections) > 0:
                 self.process_detections(frame_to_process, detections)
                 
@@ -570,15 +584,20 @@ class RTSPYoloApp(ctk.CTk):
         # Figure out who is eligible for notification
         eligible_classes = []
         highest_conf = {}
+        now = time.time()
         
         for det in detections:
             cname = det["class_name"].lower()
             conf = det["confidence"]
             
             if self.webhook_manager.can_trigger(cname):
-                eligible_classes.append(cname)
-                if conf > highest_conf.get(cname, 0.0):
-                    highest_conf[cname] = conf
+                start_time = self.detection_start_times.get(cname)
+                if start_time is not None:
+                    elapsed_ms = (now - start_time) * 1000
+                    if elapsed_ms >= self.min_detection_duration_ms:
+                        eligible_classes.append(cname)
+                        if conf > highest_conf.get(cname, 0.0):
+                            highest_conf[cname] = conf
                     
         if not eligible_classes:
             return
@@ -654,6 +673,7 @@ if __name__ == "__main__":
             "notifications": {
                 "discord_webhook_url": "https://discord.com/api/webhooks/1513065582822686832/LLwOPOvxxxxxxxxxxxxx",
                 "cooldown_seconds": 60,
+                "min_detection_duration_ms": 0,
                 "enable_discord": True
             },
             "storage": {

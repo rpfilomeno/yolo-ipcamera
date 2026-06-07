@@ -15,6 +15,7 @@
   "notifications": {
     "discord_webhook_url": "https://discord.com/api/webhooks/1513065582822686832/LLwOPOv_P50-w-oJtzdIFqiYQU3yWIWSFb9L9-TeCSP7kXoY-N6pgmLIPu-_I-djmLj5",
     "cooldown_seconds": 60,
+    "min_detection_duration_ms": 0,
     "enable_discord": true
   },
   "storage": {
