@@ -10,5 +10,17 @@ dependencies = [
     "customtkinter",
     "pystray",
     "Pillow",
-    "requests"
+    "requests",
+    "torch",
+    "torchvision"
 ]
+
+[[tool.uv.index]]
+name = "pytorch"
+url = "https://download.pytorch.org/whl/cu121"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch" }
+torchvision = { index = "pytorch" }
+

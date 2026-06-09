@@ -1,13 +1,18 @@
 import logging
 import cv2
+import torch
 from ultralytics import YOLO
 
 logger = logging.getLogger("RTSPDetector")
 
 class YOLODetector:
-    def __init__(self, model_name="yolov8n.pt", confidence_threshold=0.5, target_classes=None):
-        logger.info(f"Initializing YOLO model: {model_name}...")
+    def __init__(self, model_name="yolov8n.pt", confidence_threshold=0.5, target_classes=None, device=None):
+        if device is None:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+        logger.info(f"Initializing YOLO model: {model_name} on device: {device}...")
         self.model = YOLO(model_name)
+        self.model.to(device)
+        self.device = device
         self.confidence_threshold = confidence_threshold
         
         # Default target classes to person, cat, dog if not specified
@@ -38,7 +43,7 @@ class YOLODetector:
             return []
 
         # Run inference. We can specify classes to filter at inference level for speed
-        results = self.model(frame, verbose=False, conf=self.confidence_threshold, classes=self.target_class_ids)
+        results = self.model(frame, verbose=False, conf=self.confidence_threshold, classes=self.target_class_ids, device=self.device)
         
         detections = []
         if len(results) > 0:

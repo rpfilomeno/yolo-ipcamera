@@ -73,6 +73,7 @@ class RTSPYoloApp(ctk.CTk):
         self.model_name = yolo_cfg.get("model_name", "yolov8n.pt")
         self.confidence_threshold = yolo_cfg.get("confidence_threshold", 0.5)
         self.target_classes = yolo_cfg.get("target_classes", ["person", "cat", "dog"])
+        self.device = yolo_cfg.get("device", None)
         
         notify_cfg = config.get("notifications", {})
         self.discord_url = notify_cfg.get("discord_webhook_url", "")
@@ -116,7 +117,8 @@ class RTSPYoloApp(ctk.CTk):
         self.detector = YOLODetector(
             model_name=self.model_name,
             confidence_threshold=self.confidence_threshold,
-            target_classes=self.target_classes
+            target_classes=self.target_classes,
+            device=self.device
         )
         
         # Configure Window
@@ -668,7 +670,8 @@ if __name__ == "__main__":
             "yolo": {
                 "model_name": "yolov8n.pt",
                 "confidence_threshold": 0.5,
-                "target_classes": ["person", "cat", "dog"]
+                "target_classes": ["person", "cat", "dog"],
+                "device": "cuda"
             },
             "notifications": {
                 "discord_webhook_url": "https://discord.com/api/webhooks/1513065582822686832/LLwOPOvxxxxxxxxxxxxx",
