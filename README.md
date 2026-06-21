@@ -4,6 +4,8 @@ A lightweight, modern Windows Python application that streams RTSP video feeds, 
 
 Designed with a sleek, dark-themed CustomTkinter UI and system tray integration, the application operates unobtrusively in the background of your system.
 
+<img width="636" height="399" alt="image" src="https://github.com/user-attachments/assets/bf0f3c86-5665-4301-860c-e035b9a9512c" />
+
 ---
 
 ## 🚀 Key Features
