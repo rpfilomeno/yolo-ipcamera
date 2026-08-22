@@ -68,6 +68,12 @@ class RTSPYoloApp(ctk.CTk):
         rtsp_cfg = config.get("rtsp", {})
         self.rtsp_url = rtsp_cfg.get("url", "rtsp://192.168.1.200:554/live/ch00_1")
         self.reconnect_delay = rtsp_cfg.get("reconnect_delay_seconds", 5)
+        # Must be set before the first cv2.VideoCapture; fixes long hangs on dead streams
+        timeout_us = int(rtsp_cfg.get("connect_timeout_seconds", 5) * 1_000_000)
+        os.environ.setdefault(
+            "OPENCV_FFMPEG_CAPTURE_OPTIONS",
+            f"rtsp_transport;tcp|stimeout;{timeout_us}"  # ponytail: 'stimeout' is FFmpeg <5 naming; rename to 'timeout' if opencv wheel ships FFmpeg >=5
+        )
         
         yolo_cfg = config.get("yolo", {})
         self.model_name = yolo_cfg.get("model_name", "yolov8n.pt")
@@ -665,7 +671,8 @@ if __name__ == "__main__":
         config = {
             "rtsp": {
                 "url": "rtsp://192.168.1.200:554/live/ch00_1",
-                "reconnect_delay_seconds": 5
+                "reconnect_delay_seconds": 5,
+                "connect_timeout_seconds": 5
             },
             "yolo": {
                 "model_name": "yolov8n.pt",

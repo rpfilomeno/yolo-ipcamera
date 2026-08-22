@@ -38,7 +38,8 @@ The application is fully configurable via `config.json` in the root directory. I
 {
   "rtsp": {
     "url": "rtsp://192.168.1.200:554/live/ch00_1",
-    "reconnect_delay_seconds": 5
+    "reconnect_delay_seconds": 5,
+    "connect_timeout_seconds": 5
   },
   "yolo": {
     "model_name": "yolov8n.pt",
@@ -47,11 +48,13 @@ The application is fully configurable via `config.json` in the root directory. I
       "person",
       "cat",
       "dog"
-    ]
+    ],
+    "device": "cuda"
   },
   "notifications": {
     "discord_webhook_url": "https://discord.com/api/webhooks/...",
     "cooldown_seconds": 60,
+    "min_detection_duration_ms": 0,
     "enable_discord": true
   },
   "storage": {
@@ -72,11 +75,14 @@ The application is fully configurable via `config.json` in the root directory. I
 
 *   **`rtsp.url`**: The RTSP connection string for your network IP Camera.
 *   **`rtsp.reconnect_delay_seconds`**: Cooldown time before attempting reconnection when a stream is lost.
+*   **`rtsp.connect_timeout_seconds`**: FFmpeg connect/read timeout (default 5). Prevents long hangs when the camera is offline; also forces TCP transport, which is more reliable than UDP on most IP cams.
 *   **`yolo.model_name`**: YOLOv8 weights file. Ultralytics automatically downloads standard models (e.g. `yolov8n.pt`, `yolov8s.pt`) if they aren't locally present.
 *   **`yolo.confidence_threshold`**: Detections below this probability threshold will be ignored.
 *   **`yolo.target_classes`**: List of class names to detect (e.g., `["person", "cat", "dog", "car"]`).
+*   **`yolo.device`**: Inference device (`"cuda"`, `"cpu"`, or `null` for auto-detection).
 *   **`notifications.discord_webhook_url`**: Discord webhook link used to post detection events.
 *   **`notifications.cooldown_seconds`**: Interval (in seconds) that must pass before sending another notification for the *same* class.
+*   **`notifications.min_detection_duration_ms`**: How long a class must be continuously detected before an alert fires (0 = notify immediately). Filters out momentary false positives.
 *   **`notifications.enable_discord`**: Boolean toggle to switch Discord messaging on or off.
 *   **`storage.save_directory`**: Directory where detection screenshots are stored.
 *   **`storage.max_usage_mb`**: Maximum storage limit (in megabytes) allocated for screenshot storage. Oldest screenshots are pruned to respect this limit.
@@ -134,6 +140,16 @@ python app.py
     *   Right-click the camera icon in the Windows taskbar tray to open the menu.
     *   Double-click the tray icon to quickly show or hide the application window.
     *   Toggle YOLO detection directly or exit the application from the menu.
+
+---
+
+## 🧪 Development
+
+Unit tests use the stdlib `unittest` runner with fake model/webhook objects (no GPU, network, or model download required):
+
+```bash
+uv run python -m unittest discover -s tests
+```
 
 ---
 
